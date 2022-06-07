@@ -3,9 +3,11 @@ from os import listdir
 from os.path import isfile, join
 import random
 import itertools
+import numpy as np
 
 
 class GraphPlusDict(nx.Graph):
+    # all of graphs of datasets are undirected so we use nx.Graph
 
     def graph_to_dict(self) -> dict:
         """
@@ -53,6 +55,11 @@ class SubGraphDatasetGenerator:
     NODE_NOISE_THRESHOLD = 0.2
     EDGE_NOISE_THRESHOLD = 0.3
     ATTRIBUTE_NOISE_THRESHOLD = 0.7
+    DELETE_EDGE_P = 0.6
+    CHANGE_LABEL_P = 0.4
+    ADD_EDGE = 0.3
+    ADD_NODE = 0.2
+    ADD_NODE_THRESHOLD = 1
 
     @classmethod
     def generate(cls, dataset_dir: str):
@@ -200,14 +207,180 @@ class SubGraphDatasetGenerator:
         :return:
         """
         graph_nodes = set(list(graph.nodes))
-        random_len_subgraph = random.randint(int(len(graph_nodes)/2)+1, len(graph_nodes))
+        random_len_subgraph = random.randint(int(len(graph_nodes)/2)+1, len(graph_nodes) - cls.ADD_NODE_THRESHOLD)
         combinations_subgraph_nodes = list(itertools.combinations(graph_nodes, random_len_subgraph))
         subgraph_nodes = combinations_subgraph_nodes[random.randint(0, len(combinations_subgraph_nodes))]
         return graph.subgraph(subgraph_nodes)
 
     @classmethod
     def _add_noise_to_graph(cls, graph: GraphPlusDict) -> GraphPlusDict:
-        pass
+        """
+        add noise to graph attributes
+            noise: 0  - .1 to attribute
+                    delete 1 edge
+        :param graph:
+        :return:
+        """
+        # TODO change this limitaion based on number of graph.edges
+        max_delete_edge = 1 if len(list(graph.edges)) >= 3 else 0
 
+        # add noise to node
+        nodes_info = list(graph.nodes(data=True))
+        node_new_data = dict()
+        for node_attr in nodes_info:
+            if random.random() < cls.NODE_NOISE_THRESHOLD:
+                # TODO: change max random based on data
+                new_attr = node_attr[1].values() + np.random.normal(0, .1, np.array(node_attr[1].values()))
+                node_new_data[node_attr[0]] = {list(node_attr[1].keys())[i]: new_attr[i] for i in range(len(new_attr))
+                                               if list(node_attr[1].keys())[i] != "label"}
+            else:
+                node_new_data[node_attr[0]] = node_attr[1]
 
+        # add noise to edge
+        edges_info = list(graph.edges(data=True))
+        edge_new_data = dict()
+        for edge_attr in edges_info:
+            if random.random() < cls.DELETE_EDGE_P and max_delete_edge != 0 and \
+                    cls._allow_delete_edge(graph, (edge_attr[0], edge_attr[1])):
+                graph.remove_edge(edge_attr[0], edge_attr[1])
+                max_delete_edge -= 1
 
+            elif random.random() < cls.EDGE_NOISE_THRESHOLD:
+                # TODO: change max random based on data
+                new_attr = edge_attr[2].values() + np.random.normal(0, .1, np.array(edge_attr[2].values()))
+                edge_new_data[(edge_attr[0], edge_attr[1])] = {list(edge_attr[2].keys())[i]: new_attr[i]
+                                                               for i in range(len(new_attr))
+                                                               if list(edge_attr[2].keys())[i] != "label"}
+            else:
+                edge_new_data[(edge_attr[0], edge_attr[1])] = edge_attr[2]
+
+        nx.set_node_attributes(graph, node_new_data)
+        nx.set_edge_attributes(graph, edge_new_data)
+
+        return graph
+
+    @classmethod
+    def _change_subgraph(cls, graph: GraphPlusDict, info: dict) -> (GraphPlusDict, int):
+        """
+        change subgraph that doesn't match to subgraph before changing
+        :param graph:
+        :param info:
+        :return: new graph and change score
+        """
+        change_score = 0
+
+        # change node label
+        if 'label' in info['node'].keys():
+            nodes_info = list(graph.nodes(data=True))
+            node_new_data = dict()
+            for node_attr in nodes_info:
+                new_attr = node_attr[1]
+                label, is_changed = cls._new_categorical_value(new_attr['label'], info['node']['label']['max'], info['node']['label']['min'])
+                if is_changed:
+                    change_score += 2
+                    new_attr.update('label', label)
+                node_new_data[node_attr[0]] = new_attr
+            nx.set_node_attributes(graph, node_new_data)
+
+        max_delete_edge = 0
+        edges_info = list(graph.edges(data=True))
+        edge_new_data = dict()
+        for edge_attr in edges_info:
+            # delete edge
+            if random.random() < cls.DELETE_EDGE_P and max_delete_edge != 0 and \
+                    cls._allow_delete_edge(graph, (edge_attr[0], edge_attr[1])):
+                graph.remove_edge(edge_attr[0], edge_attr[1])
+                max_delete_edge -= 1
+                change_score += 1
+
+            else:
+                # change edge label
+                if 'label' in info['edge'].keys():
+                    new_attr = edge_attr[2]
+                    label, is_changed = cls._new_categorical_value(new_attr['label'], info['edge']['label']['max'],
+                                                                   info['edge']['label']['min'])
+                    if is_changed:
+                        change_score += 2
+                        new_attr.update('label', label)
+                    edge_new_data[(edge_attr[0], edge_attr[1])] = new_attr
+
+        nx.set_edge_attributes(graph, edge_new_data)
+
+        # add edge
+
+        # add node
+
+        return graph, change_score
+
+    @classmethod
+    def _new_categorical_value(cls, current_value: int, max_value: int, min_value: int) -> (int, bool):
+        """
+        return a new value for categorical attribute based on attribute range
+        :param current_value:
+        :param max_value:
+        :param min_value:
+        :return: new value, boolean to show value changed or not
+        """
+        if min_value == max_value:
+            return min_value, False
+
+        if random.random() < cls.CHANGE_LABEL_P:
+            try_loop = 30
+            while True and try_loop > 0:
+                try_loop -= 1
+                new_label = random.randint(min_value, max_value)
+                if new_label != current_value:
+                    return new_label, True
+        return current_value, False
+
+    @classmethod
+    def _allow_delete_edge(cls, graph: GraphPlusDict, edge: tuple) -> bool:
+        """
+        can delete the edge (if all nodes of graph are connected, deleting edge must doesn't effect on it)
+        :param graph:
+        :param edge: (node_id_1, node_id_2)
+        :return:
+        """
+        edge_list = list(graph.edges)
+        nodes = set(list(graph.nodes))
+        connected_nodes = {[edge[0] for edge in edge_list] + [edge[1] for edge in edge_list]}
+        if len(nodes - connected_nodes) > 0:
+            return True
+
+        edge_list.remove(edge)
+        after_delete_connected_nodes = {[edge[0] for edge in edge_list] + [edge[1] for edge in edge_list]}
+        if len(nodes - after_delete_connected_nodes) > 0:
+            return False
+
+        return True
+
+    @classmethod
+    def _create_new_node(cls, graph: GraphPlusDict, info: dict) -> dict:
+        """
+        create new node based on graph
+        :param graph:
+        :param info:
+        :return:
+        """
+        return dict()
+
+    @classmethod
+    def _create_new_edge(cls, graph: GraphPlusDict, info: dict, node_id=None) -> dict:
+        """
+        create new edge based on graph
+        :param graph:
+        :param info:
+        :param node_id: can choose one of node_id
+        :return:
+        """
+        
+        return dict()
+
+    @classmethod
+    def _new_attributes_value(cls, attributes_info: dict) -> dict:
+        """
+        add noise to attributes based on attributes_info and return new values
+        :param attributes_info:
+        :return:
+        """
+        return dict()
