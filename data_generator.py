@@ -52,6 +52,7 @@ class SubGraphDatasetGenerator:
         4. save the elements of new dataset
     """
 
+    CATEGORICAL_UNIQUE_NUMBER = 15
     NODE_NOISE_THRESHOLD = 0.2
     EDGE_NOISE_THRESHOLD = 0.3
     ATTRIBUTE_NOISE_THRESHOLD = 0.7
@@ -94,14 +95,20 @@ class SubGraphDatasetGenerator:
         info = dict()
         if 'node_labels' in files.keys():
             lines = files['node_labels']['file'].readlines()
-            label_array = [line.strip('\n')[0] for line in lines if line != "\n"]
-            info['node'] = {'label': {'max': max(label_array), 'min': min(label_array)}}
+            label_array = {[line.strip('\n')[0] for line in lines if line != "\n"]}
+            info['node'] = {'label': {'max': max(label_array),
+                                      'min': min(label_array),
+                                      "kind": "category",
+                                      "values": list(label_array)}}
             files['node_labels']['file'].seek(0)
 
         if 'edge_labels' in files.keys():
             lines = files['edge_labels']['file'].readlines()
-            label_array = [line.strip('\n')[0] for line in lines if line != "\n"]
-            info['edge'] = {'label': {'max': max(label_array), 'min': min(label_array)}}
+            label_array = {[line.strip('\n')[0] for line in lines if line != "\n"]}
+            info['edge'] = {'label': {'max': max(label_array),
+                                      'min': min(label_array),
+                                      "kind": "category",
+                                      "values": list(label_array)}}
             files['edge_labels']['file'].seek(0)
 
         if 'node_attributes' in files.keys():
@@ -111,8 +118,12 @@ class SubGraphDatasetGenerator:
                 if line != "\n":
                     attrs = line.strip('\n')[0].strip[', ']
                     for i, attr in enumerate(attrs):
-                        attr_dict[f"attr_{i}"] = attr_dict.get(f"attr_{i}", []).append(attr)
-            info['node'].update({key: {"max": max(value), "min": min(value)} for key, value in attr_dict.items()})
+                        attr_dict[f"attr_{i}"] = attr_dict.get(f"attr_{i}", {}).add(attr)
+            info['node'].update({key: {"max": max(value),
+                                       "min": min(value),
+                                       "kind": "category" if len(value) <= cls.CATEGORICAL_UNIQUE_NUMBER else "number",
+                                       "values": list(set(value)) if len(value) <= cls.CATEGORICAL_UNIQUE_NUMBER else list()}
+                                 for key, value in attr_dict.items()})
             files['node_attributes']['file'].seek(0)
 
         if 'edge_attributes' in files.keys():
@@ -122,8 +133,11 @@ class SubGraphDatasetGenerator:
                 if line != "\n":
                     attrs = line.strip('\n')[0].strip[', ']
                     for i, attr in enumerate(attrs):
-                        attr_dict[f"attr_{i}"] = attr_dict.get(f"attr_{i}", []).append(attr)
-            info['edge'].update({key: {"max": max(value), "min": min(value)} for key, value in attr_dict.items()})
+                        attr_dict[f"attr_{i}"] = attr_dict.get(f"attr_{i}", {}).add(attr)
+            info['edge'].update({key: {"max": max(value), "min": min(value),
+                                       "kind": "category" if len(value) <= cls.CATEGORICAL_UNIQUE_NUMBER else "number",
+                                       "values": list(set(value)) if len(value) <= cls.CATEGORICAL_UNIQUE_NUMBER else list()}
+                                 for key, value in attr_dict.items()})
             files['edge_attributes']['file'].seek(0)
 
         return info
@@ -230,7 +244,7 @@ class SubGraphDatasetGenerator:
         for node_attr in nodes_info:
             if random.random() < cls.NODE_NOISE_THRESHOLD:
                 # TODO: change max random based on data
-                new_attr = node_attr[1].values() + np.random.normal(0, .1, np.array(node_attr[1].values()))
+                new_attr = node_attr[1].values() + np.random.normal(0, .1, np.array(node_attr[1].values()).shape)
                 node_new_data[node_attr[0]] = {list(node_attr[1].keys())[i]: new_attr[i] for i in range(len(new_attr))
                                                if list(node_attr[1].keys())[i] != "label"}
             else:
@@ -247,7 +261,7 @@ class SubGraphDatasetGenerator:
 
             elif random.random() < cls.EDGE_NOISE_THRESHOLD:
                 # TODO: change max random based on data
-                new_attr = edge_attr[2].values() + np.random.normal(0, .1, np.array(edge_attr[2].values()))
+                new_attr = edge_attr[2].values() + np.random.normal(0, .1, np.array(edge_attr[2].values()).shape)
                 edge_new_data[(edge_attr[0], edge_attr[1])] = {list(edge_attr[2].keys())[i]: new_attr[i]
                                                                for i in range(len(new_attr))
                                                                if list(edge_attr[2].keys())[i] != "label"}
@@ -275,7 +289,8 @@ class SubGraphDatasetGenerator:
             node_new_data = dict()
             for node_attr in nodes_info:
                 new_attr = node_attr[1]
-                label, is_changed = cls._new_categorical_value(new_attr['label'], info['node']['label']['max'], info['node']['label']['min'])
+                label, is_changed = cls._new_categorical_value(new_attr['label'], info['node']['label']['values'],
+                                                               True)
                 if is_changed:
                     change_score += 2
                     new_attr.update('label', label)
@@ -297,8 +312,8 @@ class SubGraphDatasetGenerator:
                 # change edge label
                 if 'label' in info['edge'].keys():
                     new_attr = edge_attr[2]
-                    label, is_changed = cls._new_categorical_value(new_attr['label'], info['edge']['label']['max'],
-                                                                   info['edge']['label']['min'])
+                    label, is_changed = cls._new_categorical_value(new_attr['label'], info['edge']['label']['values'],
+                                                                   True)
                     if is_changed:
                         change_score += 2
                         new_attr.update('label', label)
@@ -313,24 +328,24 @@ class SubGraphDatasetGenerator:
         return graph, change_score
 
     @classmethod
-    def _new_categorical_value(cls, current_value: int, max_value: int, min_value: int) -> (int, bool):
+    def _new_categorical_value(cls, current_value, values: list, check_threshold=False) -> (int, bool):
         """
         return a new value for categorical attribute based on attribute range
         :param current_value:
-        :param max_value:
-        :param min_value:
+        :param values: unique values of this feature
         :return: new value, boolean to show value changed or not
         """
-        if min_value == max_value:
-            return min_value, False
+        if len(values) == 1:
+            return values[0], False if current_value else True
 
-        if random.random() < cls.CHANGE_LABEL_P:
+        if ((random.random() < cls.CHANGE_LABEL_P and check_threshold) or not check_threshold) and len(values) > 1:
             try_loop = 30
             while True and try_loop > 0:
                 try_loop -= 1
-                new_label = random.randint(min_value, max_value)
+                new_label = random.choice(values)
                 if new_label != current_value:
                     return new_label, True
+
         return current_value, False
 
     @classmethod
@@ -383,4 +398,11 @@ class SubGraphDatasetGenerator:
         :param attributes_info:
         :return:
         """
-        return dict()
+        new_attributes = dict()
+        for key, value in attributes_info.items():
+            if value['kind'] == 'category':
+                new_attributes['key'], _ = cls._new_categorical_value(None, value['values'])
+            else:
+                new_attributes['key'] = random.uniform(value['min'], value['max'])
+        
+        return new_attributes
