@@ -177,13 +177,14 @@ class SubGraphDatasetGenerator:
             node_atrrs = dict()
 
             if 'node_labels' in files.keys():
-                node_atrrs['label'] = int(files['node_labels']['file'].readline().split('\n')[0])
+                node_labels = files['node_labels']['file'].readline().split('\n')[0].split(', ')
+                node_atrrs.update({f'label_{index}': int(label) for index, label in enumerate(node_labels)})
                 files['node_labels']['position'] = files['node_labels']['file'].tell()
                 files['node_labels']['line'] = files['node_labels']['line'] + 1
 
             if 'node_attributes' in files.keys():
                 node_attributes = files['node_attributes']['file'].readline().split('\n')[0].split(', ')
-                node_atrrs.update({f'attr{index+1}': float(attr) for index, attr in enumerate(node_attributes)})
+                node_atrrs.update({f'attr_{index}': float(attr) for index, attr in enumerate(node_attributes)})
                 files['node_attributes']['position'] = files['node_attributes']['file'].tell()
                 files['node_attributes']['line'] = files['node_attributes']['line'] + 1
 
@@ -205,13 +206,14 @@ class SubGraphDatasetGenerator:
 
             edge_attrs = dict()
             if 'edge_labels' in files.keys():
-                edge_attrs['label'] = int(files['edge_labels']['file'].readline().split('\n')[0])
+                edge_labels = files['edge_labels']['file'].readline().split('\n')[0].split(', ')
+                edge_attrs.update({f'label_{index}': int(label) for index, label in enumerate(edge_labels)})
                 files['edge_labels']['position'] = files['edge_labels']['file'].tell()
                 files['edge_labels']['line'] = files['edge_labels']['line'] + 1
 
             if 'edge_attributes' in files.keys():
                 edge_attributes = files['edge_attributes']['file'].readline().split('\n')[0].split(', ')
-                edge_attrs.update({f'attr{index+1}': float(attr) for index, attr in enumerate(edge_attributes)})
+                edge_attrs.update({f'attr_{index}': float(attr) for index, attr in enumerate(edge_attributes)})
                 files['edge_attributes']['position'] = files['edge_attributes']['file'].tell()
                 files['edge_attributes']['line'] = files['edge_attributes']['line'] + 1
 
@@ -273,7 +275,7 @@ class SubGraphDatasetGenerator:
             if random.random() < cls.NODE_NOISE_THRESHOLD:
                 new_attr = np.array(node_attr[1].values()) + np.random.normal(0, .1, np.array(node_attr[1].values()).shape)
                 node_new_data[node_attr[0]] = {list(node_attr[1].keys())[i]: new_attr[i] for i in range(len(new_attr))
-                                               if list(node_attr[1].keys())[i] != "label"}
+                                               if "label" in list(node_attr[1].keys())[i]}
 
             else:
                 node_new_data[node_attr[0]] = node_attr[1]
@@ -291,7 +293,7 @@ class SubGraphDatasetGenerator:
                 new_attr = np.array(edge_attr[2].values()) + np.random.normal(0, .1, np.array(edge_attr[2].values()).shape)
                 edge_new_data[(edge_attr[0], edge_attr[1])] = {list(edge_attr[2].keys())[i]: new_attr[i]
                                                                for i in range(len(new_attr))
-                                                               if list(edge_attr[2].keys())[i] != "label"}
+                                                               if "label" in list(edge_attr[2].keys())[i]}
 
             else:
                 edge_new_data[(edge_attr[0], edge_attr[1])] = edge_attr[2]
@@ -317,11 +319,16 @@ class SubGraphDatasetGenerator:
             node_new_data = dict()
             for node_attr in nodes_info:
                 new_attr = node_attr[1]
-                label, is_changed = cls._new_categorical_value(new_attr['label'], info['node']['label']['values'],
-                                                               True)
-                if is_changed:
-                    change_score += 2
-                    new_attr.update('label', label)
+                for feature_name in new_attr.keys():
+                    if "label" in feature_name:
+
+                        label, is_changed = cls._new_categorical_value(new_attr[feature_name],
+                                                                       info['node'][feature_name]['values'],
+                                                                       True)
+                        if is_changed:
+                            change_score += 2
+                            new_attr.update(feature_name, label)
+
                 node_new_data[node_attr[0]] = new_attr
             nx.set_node_attributes(graph, node_new_data)
 
@@ -340,11 +347,14 @@ class SubGraphDatasetGenerator:
                 # change edge label
                 if 'label' in info['edge'].keys():
                     new_attr = edge_attr[2]
-                    label, is_changed = cls._new_categorical_value(new_attr['label'], info['edge']['label']['values'],
-                                                                   True)
-                    if is_changed:
-                        change_score += 2
-                        new_attr.update('label', label)
+                    for feature_name in new_attr:
+                        if "label" in feature_name:
+                            label, is_changed = cls._new_categorical_value(new_attr[feature_name],
+                                                                           info['edge'][feature_name]['values'],
+                                                                           True)
+                            if is_changed:
+                                change_score += 2
+                                new_attr.update(feature_name, label)
                     edge_new_data[(edge_attr[0], edge_attr[1])] = new_attr
 
         nx.set_edge_attributes(graph, edge_new_data)
