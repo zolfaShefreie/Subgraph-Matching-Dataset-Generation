@@ -1,6 +1,8 @@
 import networkx as nx
 from os import listdir
 from os.path import isfile, join
+import random
+import itertools
 
 
 class GraphPlusDict(nx.Graph):
@@ -48,9 +50,14 @@ class SubGraphDatasetGenerator:
         4. save the elements of new dataset
     """
 
+    NODE_NOISE_THRESHOLD = 0.2
+    EDGE_NOISE_THRESHOLD = 0.3
+    ATTRIBUTE_NOISE_THRESHOLD = 0.7
+
     @classmethod
     def generate(cls, dataset_dir: str):
         files = cls._get_dataset_open_files(dataset_dir)
+        info_dict = cls._scan_to_get_info(files)
         graph = cls._create_graph_from_file(files)
         while len(list(graph.nodes)) != 0:
             graph = cls._create_graph_from_file(files)
@@ -71,7 +78,51 @@ class SubGraphDatasetGenerator:
                 for file_name in files}
 
     @classmethod
-    def _create_graph_from_file(cls, files: dict) -> nx.Graph:
+    def _scan_to_get_info(cls, files: dict) -> dict:
+        """
+        scan the files and get some info
+        :param files:
+        :return: info dict
+        """
+        info = dict()
+        if 'node_labels' in files.keys():
+            lines = files['node_labels']['file'].readlines()
+            label_array = [line.strip('\n')[0] for line in lines if line != "\n"]
+            info['node'] = {'label': {'max': max(label_array), 'min': min(label_array)}}
+            files['node_labels']['file'].seek(0)
+
+        if 'edge_labels' in files.keys():
+            lines = files['edge_labels']['file'].readlines()
+            label_array = [line.strip('\n')[0] for line in lines if line != "\n"]
+            info['edge'] = {'label': {'max': max(label_array), 'min': min(label_array)}}
+            files['edge_labels']['file'].seek(0)
+
+        if 'node_attributes' in files.keys():
+            attr_dict = dict()
+            lines = files['node_attributes']['file'].readlines()
+            for line in lines:
+                if line != "\n":
+                    attrs = line.strip('\n')[0].strip[', ']
+                    for i, attr in enumerate(attrs):
+                        attr_dict[f"attr_{i}"] = attr_dict.get(f"attr_{i}", []).append(attr)
+            info['node'].update({key: {"max": max(value), "min": min(value)} for key, value in attr_dict.items()})
+            files['node_attributes']['file'].seek(0)
+
+        if 'edge_attributes' in files.keys():
+            attr_dict = dict()
+            lines = files['edge_attributes']['file'].readlines()
+            for line in lines:
+                if line != "\n":
+                    attrs = line.strip('\n')[0].strip[', ']
+                    for i, attr in enumerate(attrs):
+                        attr_dict[f"attr_{i}"] = attr_dict.get(f"attr_{i}", []).append(attr)
+            info['edge'].update({key: {"max": max(value), "min": min(value)} for key, value in attr_dict.items()})
+            files['edge_attributes']['file'].seek(0)
+
+        return info
+
+    @classmethod
+    def _create_graph_from_file(cls, files: dict) -> GraphPlusDict:
         """
         create graph
         :param files:
@@ -79,7 +130,7 @@ class SubGraphDatasetGenerator:
             A => add edge, if exist: edge_labels, edge_attributes => edge_feature
         :return: graph
         """
-        graph = nx.Graph()
+        graph = GraphPlusDict()
 
         # adding nodes and their attributes
         last_graph_id = -1
@@ -140,4 +191,23 @@ class SubGraphDatasetGenerator:
             graph.add_edge(node_ids[0], node_ids[1], **edge_attrs)
 
         return graph
+
+    @classmethod
+    def _get_random_subgraph(cls, graph: GraphPlusDict) -> GraphPlusDict:
+        """
+        return a random subgraph
+        :param graph:
+        :return:
+        """
+        graph_nodes = set(list(graph.nodes))
+        random_len_subgraph = random.randint(int(len(graph_nodes)/2)+1, len(graph_nodes))
+        combinations_subgraph_nodes = list(itertools.combinations(graph_nodes, random_len_subgraph))
+        subgraph_nodes = combinations_subgraph_nodes[random.randint(0, len(combinations_subgraph_nodes))]
+        return graph.subgraph(subgraph_nodes)
+
+    @classmethod
+    def _add_noise_to_graph(cls, graph: GraphPlusDict) -> GraphPlusDict:
+        pass
+
+
 
