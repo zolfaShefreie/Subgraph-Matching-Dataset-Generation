@@ -6,6 +6,7 @@ import itertools
 import numpy as np
 import gzip
 import json
+import os
 
 
 class GraphPlusDict(nx.Graph):
@@ -74,14 +75,19 @@ class SubGraphDatasetGenerator:
     ADD_EDGE_THRESHOLD = 5
 
     @classmethod
-    def generate(cls, dataset_dir: str):
+    def generate(cls, dataset_dir: str, output_dir):
         files = cls._get_dataset_open_files(dataset_dir)
         info_dict = cls._scan_to_get_info(files)
+        
+        if not os.path.exists(output_dir):
+            os.mkdir(output_dir)
+        output_file = gzip.open(f"{output_dir}/{dataset_dir.split('/')[-1]}.jsonl.gz", 'w')
+
         graph = cls._create_graph_from_file(files)
-        output_file = gzip.open("dataset_dir.split("/")[-1].jsonl.gz", 'w')
         while nx.number_of_nodes(graph) != 0:
             cls._make_save_elements_of_graph(graph, info_dict, output_file)
             graph = cls._create_graph_from_file(files)
+        
         output_file.close()
 
     @classmethod
@@ -107,52 +113,38 @@ class SubGraphDatasetGenerator:
         :return: info dict
         """
         info = dict()
-        if 'node_labels' in files.keys():
-            lines = files['node_labels']['file'].readlines()
-            label_array = {[line.strip('\n')[0] for line in lines if line != "\n"]}
-            info['node'] = {'label': {'max': max(label_array),
-                                      'min': min(label_array),
-                                      "kind": "category",
-                                      "values": list(label_array)}}
-            files['node_labels']['file'].seek(0)
+        for file_name in ['node_labels', 'node_attributes', 'edge_labels', 'edge_attributes']:
+            if file_name in files.keys():
 
-        if 'edge_labels' in files.keys():
-            lines = files['edge_labels']['file'].readlines()
-            label_array = {[line.strip('\n')[0] for line in lines if line != "\n"]}
-            info['edge'] = {'label': {'max': max(label_array),
-                                      'min': min(label_array),
-                                      "kind": "category",
-                                      "values": list(label_array)}}
-            files['edge_labels']['file'].seek(0)
+                base_feature_name = "label" if file_name.strip("_")[-1] == "labels" else "attr"
+                edge_or_node = file_name.strip("_")[0]
 
-        if 'node_attributes' in files.keys():
-            attr_dict = dict()
-            lines = files['node_attributes']['file'].readlines()
-            for line in lines:
-                if line != "\n":
-                    attrs = line.strip('\n')[0].strip[', ']
-                    for i, attr in enumerate(attrs):
-                        attr_dict[f"attr_{i}"] = attr_dict.get(f"attr_{i}", {}).add(attr)
-            info['node'].update({key: {"max": max(value),
-                                       "min": min(value),
-                                       "kind": "category" if len(value) <= cls.CATEGORICAL_UNIQUE_NUMBER else "number",
-                                       "values": list(set(value)) if len(value) <= cls.CATEGORICAL_UNIQUE_NUMBER else list()}
-                                 for key, value in attr_dict.items()})
-            files['node_attributes']['file'].seek(0)
+                feature_dict = dict()
+                lines = files[file_name]['file'].readlines()
 
-        if 'edge_attributes' in files.keys():
-            attr_dict = dict()
-            lines = files['edge_attributes']['file'].readlines()
-            for line in lines:
-                if line != "\n":
-                    attrs = line.strip('\n')[0].strip[', ']
-                    for i, attr in enumerate(attrs):
-                        attr_dict[f"attr_{i}"] = attr_dict.get(f"attr_{i}", {}).add(attr)
-            info['edge'].update({key: {"max": max(value), "min": min(value),
-                                       "kind": "category" if len(value) <= cls.CATEGORICAL_UNIQUE_NUMBER else "number",
-                                       "values": list(set(value)) if len(value) <= cls.CATEGORICAL_UNIQUE_NUMBER else list()}
-                                 for key, value in attr_dict.items()})
-            files['edge_attributes']['file'].seek(0)
+                # spilt features and save if to a dictionary like {feature_1: {value_1, value_2, ..}}
+                for line in lines:
+                    if line != "\n":
+                        elements = line.strip('\n')[0].strip(', ')
+                        for i, element in enumerate(elements):
+
+                            value_set = feature_dict.get(f"{base_feature_name}_{i}", set())
+                            value_set.add(element)
+                            feature_dict[f"{base_feature_name}_{i}"] = value_set
+
+                # summarize info for one file
+                info[edge_or_node].update({key: {"max": max(value),
+                                                 "min": min(value),
+                                                 "kind": "category" if (base_feature_name == 'label' or
+                                                                        len(value) <= cls.CATEGORICAL_UNIQUE_NUMBER)
+                                                 else "number",
+                                                 "values": list(value) if (base_feature_name == 'label' or
+                                                                                len(value) <= cls.CATEGORICAL_UNIQUE_NUMBER)
+                                                 else list()}
+                                           for key, value in feature_dict.items()})
+
+                # change position file to read from first byte
+                files[file_name]['file'].seek(0)
 
         return info
 
@@ -333,7 +325,7 @@ class SubGraphDatasetGenerator:
                 node_new_data[node_attr[0]] = new_attr
             nx.set_node_attributes(graph, node_new_data)
 
-        max_delete_edge = 0
+        max_delete_edge = random.randint(0, int(nx.number_of_edges(graph)/4))
         edges_info = list(graph.edges(data=True))
         edge_new_data = dict()
         for edge_attr in edges_info:
@@ -404,12 +396,12 @@ class SubGraphDatasetGenerator:
         """
         edge_list = list(graph.edges)
         nodes = set(list(graph.nodes))
-        connected_nodes = {[edge[0] for edge in edge_list] + [edge[1] for edge in edge_list]}
+        connected_nodes = set([edge[0] for edge in edge_list] + [edge[1] for edge in edge_list])
         if len(nodes - connected_nodes) > 0:
             return True
 
         edge_list.remove(edge)
-        after_delete_connected_nodes = {[edge[0] for edge in edge_list] + [edge[1] for edge in edge_list]}
+        after_delete_connected_nodes = set([edge[0] for edge in edge_list] + [edge[1] for edge in edge_list])
         if len(nodes - after_delete_connected_nodes) > 0:
             return False
 
@@ -465,3 +457,8 @@ class SubGraphDatasetGenerator:
                 new_attributes['key'] = random.uniform(value['min'], value['max'])
         
         return new_attributes
+
+
+if __name__ == "__main__":
+    path = "./graph_datasets/Cuneiform"
+    SubGraphDatasetGenerator.generate(path, "./dataset")
