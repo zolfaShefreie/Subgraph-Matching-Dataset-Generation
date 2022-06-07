@@ -61,6 +61,7 @@ class SubGraphDatasetGenerator:
     ADD_EDGE = 0.3
     ADD_NODE = 0.2
     ADD_NODE_THRESHOLD = 1
+    ADD_EDGE_THRESHOLD = 5
 
     @classmethod
     def generate(cls, dataset_dir: str):
@@ -235,7 +236,6 @@ class SubGraphDatasetGenerator:
         :param graph:
         :return:
         """
-        # TODO change this limitaion based on number of graph.edges
         max_delete_edge = 1 if len(list(graph.edges)) >= 3 else 0
 
         # add noise to node
@@ -243,10 +243,10 @@ class SubGraphDatasetGenerator:
         node_new_data = dict()
         for node_attr in nodes_info:
             if random.random() < cls.NODE_NOISE_THRESHOLD:
-                # TODO: change max random based on data
-                new_attr = node_attr[1].values() + np.random.normal(0, .1, np.array(node_attr[1].values()).shape)
+                new_attr = np.array(node_attr[1].values()) + np.random.normal(0, .1, np.array(node_attr[1].values()).shape)
                 node_new_data[node_attr[0]] = {list(node_attr[1].keys())[i]: new_attr[i] for i in range(len(new_attr))
                                                if list(node_attr[1].keys())[i] != "label"}
+
             else:
                 node_new_data[node_attr[0]] = node_attr[1]
 
@@ -260,11 +260,11 @@ class SubGraphDatasetGenerator:
                 max_delete_edge -= 1
 
             elif random.random() < cls.EDGE_NOISE_THRESHOLD:
-                # TODO: change max random based on data
-                new_attr = edge_attr[2].values() + np.random.normal(0, .1, np.array(edge_attr[2].values()).shape)
+                new_attr = np.array(edge_attr[2].values()) + np.random.normal(0, .1, np.array(edge_attr[2].values()).shape)
                 edge_new_data[(edge_attr[0], edge_attr[1])] = {list(edge_attr[2].keys())[i]: new_attr[i]
                                                                for i in range(len(new_attr))
                                                                if list(edge_attr[2].keys())[i] != "label"}
+
             else:
                 edge_new_data[(edge_attr[0], edge_attr[1])] = edge_attr[2]
 
@@ -322,8 +322,18 @@ class SubGraphDatasetGenerator:
         nx.set_edge_attributes(graph, edge_new_data)
 
         # add edge
+        for i in range(random.randint(0, cls.ADD_EDGE_THRESHOLD)):
+            new_edge = cls._create_new_edge(graph, info)
+            if not new_edge:
+                break
+            graph.add_edge(new_edge['edge'][0], new_edge['edge'][0], **new_edge['attr'])
+            change_score += 2
 
         # add node
+        for i in range(random.randint(0, cls.ADD_NODE_THRESHOLD)):
+            new_node = cls._create_new_node(graph, info)
+            graph.add_node(new_node['node'], **new_node['attr'])
+            change_score += 2
 
         return graph, change_score
 
@@ -377,7 +387,8 @@ class SubGraphDatasetGenerator:
         :param info:
         :return:
         """
-        return dict()
+        new_id = max(list(graph.nodes)) + 1
+        return {'node': new_id, 'attr': cls._new_attributes_value(info['node'])}
 
     @classmethod
     def _create_new_edge(cls, graph: GraphPlusDict, info: dict, node_id=None) -> dict:
@@ -388,8 +399,20 @@ class SubGraphDatasetGenerator:
         :param node_id: can choose one of node_id
         :return:
         """
-        
-        return dict()
+        if node_id:
+            not_connected_nodes = list(set(list(graph.nodes)) - set([x for x in nx.all_neighbors(graph, node_id)]))
+            if len(not_connected_nodes) == 0:
+                return dict()
+            other_node_id = random.choice(not_connected_nodes)
+            edge = (node_id, other_node_id)
+        else:
+            non_edges = [x for x in nx.non_edges(graph)]
+            if len(non_edges) == 0:
+                return dict()
+            edge = random.choice(non_edges)
+
+        new_attr = cls._new_attributes_value(info['edge'])
+        return {'edge': edge, 'attr': new_attr}
 
     @classmethod
     def _new_attributes_value(cls, attributes_info: dict) -> dict:
