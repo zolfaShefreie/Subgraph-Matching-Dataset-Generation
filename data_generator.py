@@ -485,5 +485,9 @@ class SubGraphDatasetGenerator:
 
 
 if __name__ == "__main__":
-    path = "./graph_datasets/Cuneiform"
-    SubGraphDatasetGenerator.generate(path, "./subgraph_matching_dataset")
+    graph_dataset_dir = "./graph_datasets"
+    dirs = {dir_name: f"{graph_dataset_dir}/{dir_name}" for dir_name in os.listdir(graph_dataset_dir)
+            if os.path.isdir(f"{graph_dataset_dir}/{dir_name}")}
+    for key, value in dirs.items():
+        SubGraphDatasetGenerator.generate(value, "./subgraph_matching_dataset")
+        print(key, " is completed")
