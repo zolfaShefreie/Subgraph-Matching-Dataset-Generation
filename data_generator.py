@@ -44,13 +44,20 @@ class SubGraphMatchingElement:
             "label": self.label
         }
 
-    def to_json_encode(self):
+    # def to_json_encode(self):
+    #     """
+    #     encode json of element
+    #     :return:
+    #     """
+    #     json_str = json.dumps(self.to_dict()) + "\n"
+    #     return json_str.encode('utf-8')
+
+    def __str__(self):
         """
-        encode json of element
+        str of element
         :return:
         """
-        json_str = json.dumps(self.to_dict()) + "\n"
-        return json_str.encode('utf-8')
+        return str(self.to_dict()) + "\n"
 
 
 class SubGraphDatasetGenerator:
@@ -78,13 +85,11 @@ class SubGraphDatasetGenerator:
     def generate(cls, dataset_dir: str, output_dir):
         files = cls._get_dataset_open_files(dataset_dir)
         info_dict = cls._scan_to_get_info(files)
-        
         if not os.path.exists(output_dir):
             os.mkdir(output_dir)
-        output_file = gzip.open(f"{output_dir}/{dataset_dir.split('/')[-1]}.jsonl.gz", 'w')
+        output_file = gzip.open(f"{output_dir}/{dataset_dir.split('/')[-1]}.txt.gz", 'wt')
 
         graph = cls._create_graph_from_file(files)
-        print("graph_1 done")
         while nx.number_of_nodes(graph) != 0:
             cls._make_save_elements_of_graph(graph, info_dict, output_file)
             graph = cls._create_graph_from_file(files)
@@ -130,7 +135,10 @@ class SubGraphDatasetGenerator:
                         for i, element in enumerate(elements):
 
                             value_set = feature_dict.get(f"{base_feature_name}_{i}", set())
-                            value_set.add(element)
+                            if base_feature_name == "label":
+                                value_set.add(int(element))
+                            else:
+                                value_set.add(float(element))
                             feature_dict[f"{base_feature_name}_{i}"] = value_set
 
                 # summarize info for one file
@@ -238,13 +246,13 @@ class SubGraphDatasetGenerator:
         for i in range(5):
             subgraph = cls._add_noise_to_graph(cls._get_random_subgraph(graph))
             element = SubGraphMatchingElement(source_graph=graph, query_graph=subgraph, label=1)
-            file.write(element.to_json_encode())
+            file.write(str(element))
 
         for i in range(5):
             subgraph = cls._add_noise_to_graph(cls._get_random_subgraph(graph))
             subgraph, score = cls._change_subgraph(subgraph, info)
             element = SubGraphMatchingElement(source_graph=graph, query_graph=subgraph, label=0 if score > 1 else 1)
-            file.write(element.to_json_encode())
+            file.write(str(element))
 
     @classmethod
     def _get_random_subgraph(cls, graph: GraphPlusDict) -> GraphPlusDict:
@@ -255,8 +263,11 @@ class SubGraphDatasetGenerator:
         """
         graph_nodes = set(list(graph.nodes))
         random_len_subgraph = random.randint(int(len(graph_nodes)/2)+1, len(graph_nodes) - cls.ADD_NODE_THRESHOLD)
-        combinations_subgraph_nodes = list(itertools.combinations(graph_nodes, random_len_subgraph))
-        subgraph_nodes = combinations_subgraph_nodes[random.randint(0, len(combinations_subgraph_nodes))]
+        subgraph_nodes = list()
+        for i in range(random_len_subgraph):
+            choice = random.choice(list(graph_nodes))
+            subgraph_nodes.append(choice)
+            graph_nodes.remove(choice)
         return graph.subgraph(subgraph_nodes)
 
     @classmethod
@@ -268,6 +279,7 @@ class SubGraphDatasetGenerator:
         :param graph:
         :return:
         """
+        graph = GraphPlusDict(graph)
         max_delete_edge = 1 if nx.number_of_nodes(graph) >= 3 else 0
 
         # add noise to node
@@ -275,9 +287,9 @@ class SubGraphDatasetGenerator:
         node_new_data = dict()
         for node_attr in nodes_info:
             if random.random() < cls.NODE_NOISE_THRESHOLD:
-                new_attr = np.array(node_attr[1].values()) + np.random.normal(0, .1, np.array(node_attr[1].values()).shape)
+                new_attr = np.array(list(node_attr[1].values())) + np.random.normal(0, .1, np.array(list(node_attr[1].values())).shape)
                 node_new_data[node_attr[0]] = {list(node_attr[1].keys())[i]: new_attr[i] for i in range(len(new_attr))
-                                               if "label" in list(node_attr[1].keys())[i]}
+                                               if "label" not in list(node_attr[1].keys())[i]}
 
             else:
                 node_new_data[node_attr[0]] = node_attr[1]
@@ -292,10 +304,10 @@ class SubGraphDatasetGenerator:
                 max_delete_edge -= 1
 
             elif random.random() < cls.EDGE_NOISE_THRESHOLD:
-                new_attr = np.array(edge_attr[2].values()) + np.random.normal(0, .1, np.array(edge_attr[2].values()).shape)
+                new_attr = np.array(list(edge_attr[2].values())) + np.random.normal(0, .1, np.array(list(edge_attr[2].values())).shape)
                 edge_new_data[(edge_attr[0], edge_attr[1])] = {list(edge_attr[2].keys())[i]: new_attr[i]
                                                                for i in range(len(new_attr))
-                                                               if "label" in list(edge_attr[2].keys())[i]}
+                                                               if "label" not in list(edge_attr[2].keys())[i]}
 
             else:
                 edge_new_data[(edge_attr[0], edge_attr[1])] = edge_attr[2]
@@ -314,9 +326,10 @@ class SubGraphDatasetGenerator:
         :return: new graph and change score
         """
         change_score = 0
+        graph = GraphPlusDict(graph)
 
         # change node label
-        if 'label' in info['node'].keys():
+        if 'label_0' in info['node'].keys():
             nodes_info = list(graph.nodes(data=True))
             node_new_data = dict()
             for node_attr in nodes_info:
@@ -329,7 +342,7 @@ class SubGraphDatasetGenerator:
                                                                        True)
                         if is_changed:
                             change_score += 2
-                            new_attr.update(feature_name, label)
+                            new_attr.update({feature_name: label})
 
                 node_new_data[node_attr[0]] = new_attr
             nx.set_node_attributes(graph, node_new_data)
@@ -347,7 +360,7 @@ class SubGraphDatasetGenerator:
 
             else:
                 # change edge label
-                if 'label' in info['edge'].keys():
+                if 'label_0' in info['edge'].keys():
                     new_attr = edge_attr[2]
                     for feature_name in new_attr:
                         if "label" in feature_name:
@@ -356,7 +369,7 @@ class SubGraphDatasetGenerator:
                                                                            True)
                             if is_changed:
                                 change_score += 2
-                                new_attr.update(feature_name, label)
+                                new_attr.update({feature_name: label})
                     edge_new_data[(edge_attr[0], edge_attr[1])] = new_attr
 
         nx.set_edge_attributes(graph, edge_new_data)
@@ -473,4 +486,4 @@ class SubGraphDatasetGenerator:
 
 if __name__ == "__main__":
     path = "./graph_datasets/Cuneiform"
-    SubGraphDatasetGenerator.generate(path, "./dataset")
+    SubGraphDatasetGenerator.generate(path, "./subgraph_matching_dataset")
