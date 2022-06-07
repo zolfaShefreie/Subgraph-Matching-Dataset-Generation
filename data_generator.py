@@ -4,6 +4,8 @@ from os.path import isfile, join
 import random
 import itertools
 import numpy as np
+import gzip
+import json
 
 
 class GraphPlusDict(nx.Graph):
@@ -25,7 +27,7 @@ class SubGraphMatchingElement:
     contain a pair of graph with a label
     """
 
-    def __int__(self, source_graph: GraphPlusDict, query_graph: GraphPlusDict, label):
+    def __init__(self, source_graph: GraphPlusDict, query_graph: GraphPlusDict, label):
         self.source_graph = source_graph
         self.query_graph = query_graph
         self.label = label
@@ -40,6 +42,14 @@ class SubGraphMatchingElement:
             "query_graph": self.query_graph.graph_to_dict(),
             "label": self.label
         }
+
+    def to_json_encode(self):
+        """
+        encode json of element
+        :return:
+        """
+        json_str = json.dumps(self.to_dict()) + "\n"
+        return json_str.encode('utf-8')
 
 
 class SubGraphDatasetGenerator:
@@ -68,8 +78,11 @@ class SubGraphDatasetGenerator:
         files = cls._get_dataset_open_files(dataset_dir)
         info_dict = cls._scan_to_get_info(files)
         graph = cls._create_graph_from_file(files)
-        while len(list(graph.nodes)) != 0:
+        output_file = gzip.open("dataset_dir.split("/")[-1].jsonl.gz", 'w')
+        while nx.number_of_nodes(graph) != 0:
+            cls._make_save_elements_of_graph(graph, info_dict, output_file)
             graph = cls._create_graph_from_file(files)
+        output_file.close()
 
     @classmethod
     def _get_dataset_open_files(cls, dataset_dir: str) -> dict:
@@ -215,6 +228,29 @@ class SubGraphDatasetGenerator:
         return graph
 
     @classmethod
+    def _make_save_elements_of_graph(cls, graph: GraphPlusDict, info: dict, file):
+        """
+        make pairs and save it
+        :param graph:
+        :param info:
+        :param path:
+        :return: nothing
+        """
+        if nx.number_of_nodes(graph) <= 4:
+            return
+
+        for i in range(5):
+            subgraph = cls._add_noise_to_graph(cls._get_random_subgraph(graph))
+            element = SubGraphMatchingElement(source_graph=graph, query_graph=subgraph, label=1)
+            file.write(element.to_json_encode())
+
+        for i in range(5):
+            subgraph = cls._add_noise_to_graph(cls._get_random_subgraph(graph))
+            subgraph, score = cls._change_subgraph(subgraph, info)
+            element = SubGraphMatchingElement(source_graph=graph, query_graph=subgraph, label=0 if score > 1 else 1)
+            file.write(element.to_json_encode())
+
+    @classmethod
     def _get_random_subgraph(cls, graph: GraphPlusDict) -> GraphPlusDict:
         """
         return a random subgraph
@@ -236,7 +272,7 @@ class SubGraphDatasetGenerator:
         :param graph:
         :return:
         """
-        max_delete_edge = 1 if len(list(graph.edges)) >= 3 else 0
+        max_delete_edge = 1 if nx.number_of_nodes(graph) >= 3 else 0
 
         # add noise to node
         nodes_info = list(graph.nodes(data=True))
