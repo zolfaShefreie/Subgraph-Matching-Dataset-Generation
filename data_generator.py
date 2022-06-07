@@ -84,6 +84,7 @@ class SubGraphDatasetGenerator:
         output_file = gzip.open(f"{output_dir}/{dataset_dir.split('/')[-1]}.jsonl.gz", 'w')
 
         graph = cls._create_graph_from_file(files)
+        print("graph_1 done")
         while nx.number_of_nodes(graph) != 0:
             cls._make_save_elements_of_graph(graph, info_dict, output_file)
             graph = cls._create_graph_from_file(files)
@@ -112,12 +113,12 @@ class SubGraphDatasetGenerator:
         :param files:
         :return: info dict
         """
-        info = dict()
+        info = {'node': {}, 'edge': {}}
         for file_name in ['node_labels', 'node_attributes', 'edge_labels', 'edge_attributes']:
             if file_name in files.keys():
 
-                base_feature_name = "label" if file_name.strip("_")[-1] == "labels" else "attr"
-                edge_or_node = file_name.strip("_")[0]
+                base_feature_name = "label" if file_name.split("_")[-1] == "labels" else "attr"
+                edge_or_node = file_name.split("_")[0]
 
                 feature_dict = dict()
                 lines = files[file_name]['file'].readlines()
@@ -125,7 +126,7 @@ class SubGraphDatasetGenerator:
                 # spilt features and save if to a dictionary like {feature_1: {value_1, value_2, ..}}
                 for line in lines:
                     if line != "\n":
-                        elements = line.strip('\n')[0].strip(', ')
+                        elements = line.split('\n')[0].split(', ')
                         for i, element in enumerate(elements):
 
                             value_set = feature_dict.get(f"{base_feature_name}_{i}", set())
@@ -164,12 +165,13 @@ class SubGraphDatasetGenerator:
 
         while True:
             line = files['graph_indicator']['file'].readline()
-            if line == "\n":
+            if line == "":
                 return graph
 
-            if last_graph_id != -1 and last_graph_id == line.split('\n')[0]:
+            if last_graph_id != -1 and last_graph_id != line.split('\n')[0]:
                 files['graph_indicator']['file'].seek(files['graph_indicator']['position'], 0)
                 break
+
             last_graph_id = line.split('\n')[0]
             files['graph_indicator']['position'] = files['graph_indicator']['file'].tell()
             files['graph_indicator']['line'] = files['graph_indicator']['line'] + 1
@@ -194,10 +196,10 @@ class SubGraphDatasetGenerator:
         graph_nodes = set(list(graph.nodes))
         while True:
             line = files['A']['file'].readline()
-            if line == "\n":
+            if line == "":
                 return graph
 
-            node_ids = [int(node_id) for node_id in line.split('\n').split(', ')]
+            node_ids = [int(node_id) for node_id in line.split('\n')[0].split(', ')]
             if len(set(node_ids) - graph_nodes) > 0:
                 files['A']['file'].seek(files['A']['position'], 0)
                 break
