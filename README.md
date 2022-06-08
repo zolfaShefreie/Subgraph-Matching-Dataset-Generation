@@ -17,7 +17,7 @@ every row of dataset file have below format:<br/>
 -   **source_graph** is a one of graph in graph dataset
 -   **query_graph** is a matched or unmatched subgraph of **source_graph**
 -   **label** can be 0 or 1 to show **query_graph** is subgraph of **source_graph** or not
-### How the query_match is created?
+### How the query_graph is created?
 all of below changes applied with some probabilities. changes:
 1. get the random subgraph from source_graph
 2. add noise to node and edge feature and delete one edge based on conditions
