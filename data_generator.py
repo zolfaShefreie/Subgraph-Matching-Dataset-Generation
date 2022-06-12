@@ -17,9 +17,11 @@ class GraphPlusDict(nx.Graph):
         convert graph to dictionary format
         :return: dict graph info
         """
+        edges = {(item[0], item[1]): item[2] for item in list(self.edges(data=True))}
+        edges.update({(item[1], item[0]): item[2] for item in list(self.edges(data=True))})
         return {
             "nodes": {item[0]: item[1] for item in list(self.nodes(data=True))},
-            "edges": {(item[0], item[1]): item[2] for item in list(self.edges(data=True))},
+            "edges": edges,
         }
 
 
