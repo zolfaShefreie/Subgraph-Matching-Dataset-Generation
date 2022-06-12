@@ -1,5 +1,6 @@
 # Subgraph Matching Dataset Generation
 Create dataset from graph datasets for subgraph matching learning<br/>
+These generated datasets used in [Subgraph Matching project](https://github.com/zolfaShefreie/Subgraph-Matching)
 
 ## Graph dataset
 Choosen datasets for converting to new dataset:
