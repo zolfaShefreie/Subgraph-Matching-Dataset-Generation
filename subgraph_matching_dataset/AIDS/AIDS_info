@@ -1,0 +1,1 @@
+{'max_nodes': 95, 'max_edges': 103, 'min_nodes': 2, 'min_edges': 1, 'node_attr_dim': 5, 'edge_attr_dim': 1, 'number_of_graph': 2000}

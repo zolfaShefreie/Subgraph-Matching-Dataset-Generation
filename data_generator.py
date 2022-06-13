@@ -85,18 +85,62 @@ class SubGraphDatasetGenerator:
 
     @classmethod
     def generate(cls, dataset_dir: str, output_dir):
+        """
+        the main process
+        :param dataset_dir:
+        :param output_dir:
+        :return:
+        """
         files = cls._get_dataset_open_files(dataset_dir)
         info_dict = cls._scan_to_get_info(files)
+
         if not os.path.exists(output_dir):
             os.mkdir(output_dir)
+
         output_file = gzip.open(f"{output_dir}/{dataset_dir.split('/')[-1]}.txt.gz", 'wt')
 
         graph = cls._create_graph_from_file(files)
+        dataset_info = None
         while nx.number_of_nodes(graph) != 0:
+            dataset_info = cls._update_dataset_info(graph, dataset_info)
             cls._make_save_elements_of_graph(graph, info_dict, output_file)
             graph = cls._create_graph_from_file(files)
         
+        cls._save_dataset_info(dataset_info, f"{output_dir}/{dataset_dir.split('/')[-1]}_info")
         output_file.close()
+
+    @classmethod
+    def _update_dataset_info(cls, graph: GraphPlusDict, dataset_info=None) -> dict:
+        """
+        update dataset info based on graph
+        :param graph:
+        :param dataset_info:
+        :return:
+        """
+        info = dict() if dataset_info is None else dataset_info
+        info.update({'max_nodes': max(graph.number_of_nodes(), info.get("max_nodes", 0))})
+        info.update({'max_edges': max(graph.number_of_edges(), info.get("max_edges", 0))})
+        info.update({'min_nodes': min(graph.number_of_nodes(), info.get("min_nodes", float('inf')))})
+        info.update({'min_edges': min(graph.number_of_edges(), info.get("min_edges", float('inf')))})
+        if "node_attr_dim" not in info and graph.number_of_nodes():
+            info['node_attr_dim'] = len(list(graph.nodes(data=True))[0][1])
+        if "edge_attr_dim" not in info and graph.number_of_nodes():
+            info['edge_attr_dim'] = len(list(graph.edges(data=True))[0][2])
+        info.update({'number_of_graph': info.get("number_of_graph", 0) if not graph.number_of_nodes() else info.get("number_of_graph", 0)+1})
+        return info
+    
+    @classmethod
+    def _save_dataset_info(cls, dataset_info: dict, path: str):
+        """
+        save dataset info
+        :param dataset_info: 
+        :param path: 
+        :return: 
+        """
+        if dataset_info:
+            file = open(path, mode="w")
+            file.write(str(dataset_info))
+            file.close()
 
     @classmethod
     def _get_dataset_open_files(cls, dataset_dir: str) -> dict:
@@ -176,7 +220,7 @@ class SubGraphDatasetGenerator:
         while True:
             line = files['graph_indicator']['file'].readline()
             if line == "":
-                return graph
+                break
 
             if last_graph_id != -1 and last_graph_id != line.split('\n')[0]:
                 files['graph_indicator']['file'].seek(files['graph_indicator']['position'], 0)
@@ -491,5 +535,5 @@ if __name__ == "__main__":
     dirs = {dir_name: f"{graph_dataset_dir}/{dir_name}" for dir_name in os.listdir(graph_dataset_dir)
             if os.path.isdir(f"{graph_dataset_dir}/{dir_name}")}
     for key, value in dirs.items():
-        SubGraphDatasetGenerator.generate(value, "./subgraph_matching_dataset")
+        SubGraphDatasetGenerator.generate(value, f"./subgraph_matching_dataset/{key}")
         print(key, " is completed")
