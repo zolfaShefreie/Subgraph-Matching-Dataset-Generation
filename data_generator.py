@@ -523,9 +523,9 @@ class SubGraphDatasetGenerator:
         new_attributes = dict()
         for key, value in attributes_info.items():
             if value['kind'] == 'category':
-                new_attributes['key'], _ = cls._new_categorical_value(None, value['values'])
+                new_attributes[key], _ = cls._new_categorical_value(None, value['values'])
             else:
-                new_attributes['key'] = random.uniform(value['min'], value['max'])
+                new_attributes[key] = random.uniform(value['min'], value['max'])
         
         return new_attributes
 
